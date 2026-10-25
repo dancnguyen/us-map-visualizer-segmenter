@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="USMapVisualizerSegmenter/usmapvisualizersegmenter.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+</Solution>
