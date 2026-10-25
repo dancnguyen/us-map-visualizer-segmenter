@@ -1,75 +1,79 @@
-# React + TypeScript + Vite
+# US Map Visualizer and Segmenter
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A map of every U.S. ZIP code and city. Group areas into named, colored **segments** (sales territories, delivery zones, pilot markets), or upload a CSV to **color the map by your data**.
 
-Currently, two official plugins are available:
+## Run it
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev        # http://localhost:51826
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+| Script | What it does |
+| --- | --- |
+| `npm run dev` | Dev server with live reload |
+| `npm run build` | Typecheck and build to `dist/` |
+| `npm run preview` | Serve the built app |
+| `npm test` | Unit tests (Vitest) |
+| `npm run lint` | ESLint |
+| `npm run data:build` | Rebuild the map data from Census sources (see below) |
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Using the app
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+**Segments tab**
+- **New segment**, then click ZIP codes or city dots on the map to add them. Click again to remove.
+- **By radius** builds a segment from every ZIP code and city whose center point is within a straight-line distance of a ZIP or city (for example 100 miles from Austin, TX). Pick the center by searching or by clicking the map. The circle is drawn on the map as you adjust it. Results go to a new segment or an existing one (**Add by radius** in a segment's menu).
+- **Add from list** takes pasted ZIP codes (commas, spaces or new lines) and cities, one per line (`Austin, TX` or `Austin, Texas`).
+- An area belongs to one segment at most. Adding it to another segment moves it.
+- The **⋮** menu imports segments from CSV. Import reads the segment export below, and also simpler files with just a segment column plus a ZIP column or city/state columns.
+
+**Data tab**
+- Upload a CSV with a ZIP column (or city and state columns) and a number column. Common header names are detected automatically.
+- Choose **equal counts** (quantiles) or **equal ranges**, 3–9 colors, and a palette.
+- **Make a segment from each color** turns the color classes into segments.
+
+**Export** (download button in the top bar)
+- **Image:** the map as shown, with an optional title and legend, as PNG or a one-page PDF, at standard, high (2×) or print (3×) sharpness. The basemap caps images at 4096 px per side.
+- **CSV, Segments:** one row per ZIP or city: `segment, color, type, zip, city, state, city_id, lat, lon` (lat/lon are center points). Can be imported again.
+- **CSV, Data results:** one row per matched ZIP or city with its value, color class, range and center point, then entries from your file that weren't found.
+
+Search (top left) jumps to any ZIP code or city. Switches (bottom left) show or hide ZIP outlines and city dots. Segments, uploaded data and settings are saved in the browser's local storage.
+
+## How it's built
+
+- [MUI](https://mui.com) for all UI
+- [MapLibre GL](https://maplibre.org) through [react-map-gl](https://visgl.github.io/react-map-gl/) to draw the map
+- [PMTiles](https://protomaps.com/docs/pmtiles) to serve ZIP outlines as one static file, with no tile server
+- [Turf.js](https://turfjs.org) for distances and the radius circle
+- [jsPDF](https://github.com/parallax/jsPDF) for PDF export (loaded only when you export a PDF)
+- [Zustand](https://zustand.docs.pmnd.rs) for state, [Papa Parse](https://www.papaparse.com) for CSV, [d3-scale](https://d3js.org/d3-scale) and [d3-scale-chromatic](https://d3js.org/d3-scale-chromatic) for color classes
+- Basemaps from [OpenFreeMap](https://openfreemap.org) (OpenStreetMap data), free with no API key
 
 ```
+src/
+  data/geoData.ts       loads ZIP and city reference data
+  lib/                  matching, search, CSV, color classes (no React; unit tested)
+  store/                segments, uploaded data, UI settings (saved to localStorage)
+  map/                  map, layers, tooltip, search box, overlay
+  segments/             Segments tab and its dialogs
+  data-panel/           Data tab
+scripts/build-data.mjs  builds public/data from Census files
+```
+
+## Map data
+
+`public/data` is generated by `npm run data:build` from U.S. Census Bureau files (public domain):
+
+| File | Source | Contents |
+| --- | --- | --- |
+| `zcta.pmtiles` (~40 MB) | 2020 cartographic boundary ZCTAs (1:500k) | ZIP outlines, zoom 3–10 |
+| `zips.json` | 2024 Gazetteer, ZCTAs | 33,791 ZIPs with center points |
+| `cities.json` | 2024 Gazetteer, places | 32,333 cities, towns and CDPs with center points |
+
+The script needs [tippecanoe](https://github.com/felt/tippecanoe) on the `PATH` (`sudo apt install tippecanoe` or `brew install tippecanoe`; on Windows use WSL) or its location in the `TIPPECANOE` environment variable. Downloads are cached in `.data-cache/`.
+
+Things to know about the data:
+- Census ZIP areas (ZCTAs) approximate USPS ZIP codes. ZIPs used only for PO boxes or single large buildings have no area, so they can't be matched.
+- City names are Census "places" with the type suffix removed ("Austin city" becomes "Austin"). "Urban Honolulu" is renamed "Honolulu". Places like "San Buenaventura (Ventura)" also match their short name.
+- Cities are shown as dots at their Census center point, since city boundaries aren't on the map.
+- Hosting: the server must support HTTP range requests (all common static hosts do), because the map reads parts of `zcta.pmtiles` on demand.

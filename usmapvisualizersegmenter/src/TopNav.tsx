@@ -4,11 +4,13 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import { useColorScheme } from '@mui/material/styles';
-import { purple } from '@mui/material/colors';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import MenuIcon from '@mui/icons-material/Menu';
+import { useUi } from './store/ui';
 
-export default function TopNav() {
+export default function TopNav({ onMenuClick }: { onMenuClick: () => void }) {
   const { mode, setMode } = useColorScheme();
   const isDark = mode !== 'light';
   const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
@@ -16,12 +18,26 @@ export default function TopNav() {
   return (
     <AppBar
       position="fixed"
-      sx={(theme) => ({ bgcolor: purple[900], color: 'common.white', backgroundImage: 'none', zIndex: theme.zIndex.drawer + 1 })}
+      sx={(theme) => ({ bgcolor: 'primary.dark', color: 'common.white', backgroundImage: 'none', zIndex: theme.zIndex.drawer + 1 })}
     >
       <Toolbar>
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+        <IconButton
+          color="inherit"
+          edge="start"
+          aria-label="Open sidebar"
+          onClick={onMenuClick}
+          sx={{ mr: 1, display: { md: 'none' } }}
+        >
+          <MenuIcon />
+        </IconButton>
+        <Typography variant="h6" component="div" noWrap sx={{ flexGrow: 1 }}>
           US Map Visualizer and Segmenter
         </Typography>
+        <Tooltip title="Export image or CSV">
+          <IconButton color="inherit" aria-label="Export" onClick={() => useUi.getState().setExportTab('image')}>
+            <FileDownloadIcon />
+          </IconButton>
+        </Tooltip>
         <Tooltip title={label}>
           <IconButton color="inherit" aria-label={label} onClick={() => setMode(isDark ? 'light' : 'dark')}>
             {isDark ? <LightModeIcon /> : <DarkModeIcon />}
