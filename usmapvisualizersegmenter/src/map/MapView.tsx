@@ -13,13 +13,15 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Snackbar from '@mui/material/Snackbar';
 import { useColorScheme, useTheme } from '@mui/material/styles';
 import { useGeoData } from '../data/geoData';
-import { colorMatch } from '../lib/mapColors';
+import { colorMap } from '../lib/mapColors';
 import { radiusCircle } from '../lib/radius';
 import { areaResult } from '../lib/search';
-import type { AreaKind } from '../store/segments';
 import { useSegments } from '../store/segments';
 import { useUi } from '../store/ui';
-import AreaTooltip from './AreaTooltip';
+import HoverTooltip from './AreaTooltip';
+import FeatureColors from './FeatureColors';
+import type { HoverInfo } from './hover';
+import { useHover } from './hover';
 import MapOverlay from './MapOverlay';
 import { useAreaColors } from './useAreaColors';
 
@@ -44,21 +46,12 @@ const CITY_DETAIL_ZOOM = 5;
 /** ZIP outlines are easy to see from this zoom on, so segment ZIP dots fade out. */
 const ZIP_DOTS_MAX_ZOOM = 8;
 
-export interface HoverInfo {
-  kind: AreaKind;
-  key: string;
-  /** Mouse position in the map */
-  x: number;
-  y: number;
-  /** Map size, so the tooltip can stay inside it */
-  width: number;
-  height: number;
-}
+/** Color set on the feature by <FeatureColors>, or null. */
+const FEATURE_COLOR: ExpressionSpecification = ['feature-state', 'color'];
+/** Does the feature have a color (segment or data class)? */
+const HAS_COLOR: ExpressionSpecification = ['to-boolean', FEATURE_COLOR];
 
-/** ['match', ['get', prop], [keys], true, false]: is this feature colored? */
-function hasKey(prop: string, keys: string[]): ExpressionSpecification | boolean {
-  return keys.length ? ['match', ['get', prop], keys, true, false] : false;
-}
+const setHover = (area: HoverInfo | null) => useHover.setState({ area });
 
 export default function MapView() {
   const theme = useTheme();
@@ -76,7 +69,7 @@ export default function MapView() {
   const toggle = useSegments((s) => s.toggle);
   const { zipGroups, cityGroups } = useAreaColors();
 
-  const [hover, setHover] = useState<HoverInfo | null>(null);
+  const hovering = useHover((s) => s.area !== null);
   const [labelLayerId, setLabelLayerId] = useState<string | undefined>();
   const [message, setMessage] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -118,14 +111,14 @@ export default function MapView() {
   const outline = isDark ? '#94a3b8' : '#64748b';
   const cityBase = isDark ? '#cbd5e1' : '#475569';
 
-  const zipFill = useMemo(() => colorMatch('zip', zipGroups, NONE), [zipGroups]);
-  const cityFill = useMemo(() => colorMatch('id', cityGroups, cityBase), [cityGroups, cityBase]);
-  const coloredCityIds = useMemo(() => cityGroups.flatMap((g) => g.keys), [cityGroups]);
-  const cityColored = useMemo(() => hasKey('id', coloredCityIds), [coloredCityIds]);
-  const coloredCitySet = useMemo(() => new Set(coloredCityIds), [coloredCityIds]);
+  const zipColors = useMemo(() => colorMap(zipGroups), [zipGroups]);
+  const cityColors = useMemo(() => colorMap(cityGroups), [cityGroups]);
 
-  const highlightZip = (hover?.kind === 'zip' && hover.key) || (focus?.kind === 'zip' && focus.key) || '';
-  const highlightCity = (hover?.kind === 'city' && hover.key) || (focus?.kind === 'city' && focus.key) || '';
+  // Only the area picked in search is outlined, not the one under the mouse:
+  // changing a layer filter makes MapLibre re-process every loaded tile, which
+  // made the map lag when it happened on each mouse move.
+  const highlightZip = (focus?.kind === 'zip' && focus.key) || '';
+  const highlightCity = (focus?.kind === 'city' && focus.key) || '';
 
   const interactiveLayerIds = [...(showCities ? ['cities-circle'] : []), ...(showZips ? ['zips-fill'] : [])];
 
@@ -136,14 +129,14 @@ export default function MapView() {
       for (const f of e.features ?? []) {
         const props = f.properties ?? {};
         if (f.layer.id === 'cities-circle') {
-          if (zoom >= CITY_DETAIL_ZOOM || coloredCitySet.has(props.id)) return { kind: 'city', key: String(props.id) };
+          if (zoom >= CITY_DETAIL_ZOOM || cityColors.has(props.id)) return { kind: 'city', key: String(props.id) };
         } else if (f.layer.id === 'zips-fill' && props.zip) {
           return { kind: 'zip', key: String(props.zip) };
         }
       }
       return null;
     },
-    [coloredCitySet],
+    [cityColors],
   );
 
   const onMouseMove = useCallback(
@@ -201,7 +194,7 @@ export default function MapView() {
         initialViewState={{ bounds: CONTINENTAL_US, fitBoundsOptions: { padding: 24 } }}
         minZoom={2}
         interactiveLayerIds={interactiveLayerIds}
-        cursor={hover && mode === 'segments' ? 'pointer' : 'grab'}
+        cursor={hovering && mode === 'segments' ? 'pointer' : 'grab'}
         onMouseMove={onMouseMove}
         onMouseLeave={() => setHover(null)}
         onClick={onClick}
@@ -216,14 +209,14 @@ export default function MapView() {
         <NavigationControl position="top-right" />
         <ScaleControl position="bottom-right" unit="imperial" />
 
-        <Source id="zips" type="vector" url={ZIP_TILES} attribution="U.S. Census Bureau">
+        <Source id="zips" type="vector" url={ZIP_TILES} promoteId="zip" attribution="U.S. Census Bureau">
           <Layer
             id="zips-fill"
             type="fill"
             source-layer="zips"
             beforeId={labelLayerId}
             layout={{ visibility: showZips ? 'visible' : 'none' }}
-            paint={{ 'fill-color': zipFill, 'fill-opacity': mode === 'data' ? 0.8 : 0.6 }}
+            paint={{ 'fill-color': ['coalesce', FEATURE_COLOR, NONE], 'fill-opacity': mode === 'data' ? 0.8 : 0.6 }}
           />
           <Layer
             id="zips-outline"
@@ -288,29 +281,29 @@ export default function MapView() {
           />
         </Source>
 
-        <Source id="cities" type="geojson" data={cityFeatures} attribution="U.S. Census Bureau">
+        <Source id="cities" type="geojson" data={cityFeatures} promoteId="id" attribution="U.S. Census Bureau">
           <Layer
             id="cities-circle"
             type="circle"
             layout={{ visibility: showCities ? 'visible' : 'none' }}
             paint={{
-              'circle-color': cityFill,
+              'circle-color': ['coalesce', FEATURE_COLOR, cityBase],
               'circle-radius': [
                 'interpolate', ['linear'], ['zoom'],
-                3, ['case', cityColored, 3.5, 1.5],
-                8, ['case', cityColored, 6, 3],
-                12, ['case', cityColored, 9, 5],
+                3, ['case', HAS_COLOR, 3.5, 1.5],
+                8, ['case', HAS_COLOR, 6, 3],
+                12, ['case', HAS_COLOR, 9, 5],
               ],
               'circle-opacity': [
                 'interpolate', ['linear'], ['zoom'],
-                CITY_DETAIL_ZOOM - 0.01, ['case', cityColored, 0.95, 0],
-                CITY_DETAIL_ZOOM + 2, ['case', cityColored, 0.95, 0.7],
+                CITY_DETAIL_ZOOM - 0.01, ['case', HAS_COLOR, 0.95, 0],
+                CITY_DETAIL_ZOOM + 2, ['case', HAS_COLOR, 0.95, 0.7],
               ],
               'circle-stroke-color': isDark ? '#0f172a' : '#ffffff',
-              'circle-stroke-width': ['case', cityColored, 1, 0.5],
+              'circle-stroke-width': ['case', HAS_COLOR, 1, 0.5],
               'circle-stroke-opacity': [
                 'interpolate', ['linear'], ['zoom'],
-                CITY_DETAIL_ZOOM - 0.01, ['case', cityColored, 1, 0],
+                CITY_DETAIL_ZOOM - 0.01, ['case', HAS_COLOR, 1, 0],
                 CITY_DETAIL_ZOOM + 2, 1,
               ],
             }}
@@ -328,10 +321,12 @@ export default function MapView() {
             }}
           />
         </Source>
+
+        <FeatureColors zips={zipColors} cities={cityColors} />
       </Map>
 
       <MapOverlay />
-      {hover && <AreaTooltip area={hover} />}
+      <HoverTooltip />
 
       <Snackbar
         open={message !== null}

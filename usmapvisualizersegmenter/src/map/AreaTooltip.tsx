@@ -8,10 +8,16 @@ import { useDataLayer, useResolvedData } from '../store/dataLayer';
 import { useSegments } from '../store/segments';
 import { useUi } from '../store/ui';
 import ColorSwatch from '../components/ColorSwatch';
-import type { HoverInfo } from './MapView';
+import type { HoverInfo } from './hover';
+import { useHover } from './hover';
 
 /** Small card that follows the mouse with the hovered area's details. */
-export default function AreaTooltip({ area }: { area: HoverInfo }) {
+export default function HoverTooltip() {
+  const area = useHover((s) => s.area);
+  return area ? <AreaTooltip area={area} /> : null;
+}
+
+function AreaTooltip({ area }: { area: HoverInfo }) {
   const geo = useGeoData((s) => s.data);
   const mode = useUi((s) => s.mode);
   const segmentId = useSegments((s) => (area.kind === 'zip' ? s.zipSegment : s.citySegment)[area.key]);
